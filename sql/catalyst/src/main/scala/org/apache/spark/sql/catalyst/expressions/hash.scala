@@ -278,7 +278,7 @@ abstract class HashExpression[E] extends Expression {
       }
     }
 
-    val hashResultType = ctx.javaType(dataType)
+    val hashResultType = CodegenUtils.javaType(dataType)
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = childrenHash,
       funcName = "computeHash",
@@ -308,8 +308,9 @@ abstract class HashExpression[E] extends Expression {
     val element = ctx.freshName("element")
 
     ctx.nullSafeExec(nullable, s"$input.isNullAt($index)") {
+      val javaType = CodegenUtils.javaType(elementType)
       s"""
-        final ${ctx.javaType(elementType)} $element = ${ctx.getValue(input, elementType, index)};
+        final $javaType $element = ${ctx.getValue(input, elementType, index)};
         ${computeHash(element, elementType, result, ctx)}
       """
     }
@@ -407,7 +408,7 @@ abstract class HashExpression[E] extends Expression {
     val fieldsHash = fields.zipWithIndex.map { case (field, index) =>
       nullSafeElementHash(input, index.toString, field.nullable, field.dataType, result, ctx)
     }
-    val hashResultType = ctx.javaType(dataType)
+    val hashResultType = CodegenUtils.javaType(dataType)
     ctx.splitExpressions(
       expressions = fieldsHash,
       funcName = "computeHashForStruct",
@@ -651,11 +652,11 @@ case class HiveHash(children: Seq[Expression]) extends HashExpression[Int] {
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = childrenHash,
       funcName = "computeHash",
-      extraArguments = Seq(ctx.JAVA_INT -> ev.value),
-      returnType = ctx.JAVA_INT,
+      extraArguments = Seq(CodegenConstants.JAVA_INT -> ev.value),
+      returnType = CodegenConstants.JAVA_INT,
       makeSplitFunction = body =>
         s"""
-           |${ctx.JAVA_INT} $childHash = 0;
+           |${CodegenConstants.JAVA_INT} $childHash = 0;
            |$body
            |return ${ev.value};
          """.stripMargin,
@@ -664,8 +665,8 @@ case class HiveHash(children: Seq[Expression]) extends HashExpression[Int] {
 
     ev.copy(code =
       s"""
-         |${ctx.JAVA_INT} ${ev.value} = $seed;
-         |${ctx.JAVA_INT} $childHash = 0;
+         |${CodegenConstants.JAVA_INT} ${ev.value} = $seed;
+         |${CodegenConstants.JAVA_INT} $childHash = 0;
          |$codes
        """.stripMargin)
   }
@@ -780,14 +781,14 @@ case class HiveHash(children: Seq[Expression]) extends HashExpression[Int] {
        """.stripMargin
     }
 
-    s"${ctx.JAVA_INT} $childResult = 0;\n" + ctx.splitExpressions(
+    s"${CodegenConstants.JAVA_INT} $childResult = 0;\n" + ctx.splitExpressions(
       expressions = fieldsHash,
       funcName = "computeHashForStruct",
-      arguments = Seq("InternalRow" -> input, ctx.JAVA_INT -> result),
-      returnType = ctx.JAVA_INT,
+      arguments = Seq("InternalRow" -> input, CodegenConstants.JAVA_INT -> result),
+      returnType = CodegenConstants.JAVA_INT,
       makeSplitFunction = body =>
         s"""
-           |${ctx.JAVA_INT} $childResult = 0;
+           |${CodegenConstants.JAVA_INT} $childResult = 0;
            |$body
            |return $result;
            """.stripMargin,

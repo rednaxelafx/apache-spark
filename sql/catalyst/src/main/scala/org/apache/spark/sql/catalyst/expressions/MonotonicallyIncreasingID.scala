@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenConstants, CodegenContext, CodegenUtils, ExprCode}
 import org.apache.spark.sql.types.{DataType, LongType}
 
 /**
@@ -65,14 +65,14 @@ case class MonotonicallyIncreasingID() extends LeafExpression with Nondeterminis
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val countTerm = ctx.addMutableState(ctx.JAVA_LONG, "count")
+    val countTerm = ctx.addMutableState(CodegenConstants.JAVA_LONG, "count")
     val partitionMaskTerm = "partitionMask"
-    ctx.addImmutableStateIfNotExists(ctx.JAVA_LONG, partitionMaskTerm)
+    ctx.addImmutableStateIfNotExists(CodegenConstants.JAVA_LONG, partitionMaskTerm)
     ctx.addPartitionInitializationStatement(s"$countTerm = 0L;")
     ctx.addPartitionInitializationStatement(s"$partitionMaskTerm = ((long) partitionIndex) << 33;")
 
     ev.copy(code = s"""
-      final ${ctx.javaType(dataType)} ${ev.value} = $partitionMaskTerm + $countTerm;
+      final ${CodegenUtils.javaType(dataType)} ${ev.value} = $partitionMaskTerm + $countTerm;
       $countTerm++;""", isNull = "false")
   }
 

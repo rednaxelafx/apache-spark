@@ -59,6 +59,11 @@ import org.apache.spark.util.{ParentClassLoader, Utils}
 case class ExprCode(var code: String, var isNull: String, var value: String)
 
 object ExprCode {
+  def forNullValue(dataType: DataType): ExprCode = {
+    val defaultValueLiteral = CodegenUtils.defaultValue(dataType, typedNull = true)
+    ExprCode(code = "", isNull = "true", value = defaultValueLiteral)
+  }
+
   def forNonNullValue(value: String): ExprCode = {
     ExprCode(code = "", isNull = "false", value = value)
   }
@@ -104,6 +109,8 @@ private[codegen] case class NewFunctionSpec(
  * function.
  */
 class CodegenContext {
+  import CodegenConstants._
+  import CodegenUtils._
 
   /**
    * Holding a list of objects that could be used passed into generated class.
@@ -537,14 +544,6 @@ class CodegenContext {
     extraClasses.append(code)
   }
 
-  final val JAVA_BOOLEAN = "boolean"
-  final val JAVA_BYTE = "byte"
-  final val JAVA_SHORT = "short"
-  final val JAVA_INT = "int"
-  final val JAVA_LONG = "long"
-  final val JAVA_FLOAT = "float"
-  final val JAVA_DOUBLE = "double"
-
   /**
    * The map from a variable name to it's next ID.
    */
@@ -705,72 +704,6 @@ class CodegenContext {
   }
 
   /**
-   * Returns the name used in accessor and setter for a Java primitive type.
-   */
-  def primitiveTypeName(jt: String): String = jt match {
-    case JAVA_INT => "Int"
-    case _ => boxedType(jt)
-  }
-
-  def primitiveTypeName(dt: DataType): String = primitiveTypeName(javaType(dt))
-
-  /**
-   * Returns the Java type for a DataType.
-   */
-  def javaType(dt: DataType): String = dt match {
-    case BooleanType => JAVA_BOOLEAN
-    case ByteType => JAVA_BYTE
-    case ShortType => JAVA_SHORT
-    case IntegerType | DateType => JAVA_INT
-    case LongType | TimestampType => JAVA_LONG
-    case FloatType => JAVA_FLOAT
-    case DoubleType => JAVA_DOUBLE
-    case dt: DecimalType => "Decimal"
-    case BinaryType => "byte[]"
-    case StringType => "UTF8String"
-    case CalendarIntervalType => "CalendarInterval"
-    case _: StructType => "InternalRow"
-    case _: ArrayType => "ArrayData"
-    case _: MapType => "MapData"
-    case udt: UserDefinedType[_] => javaType(udt.sqlType)
-    case ObjectType(cls) if cls.isArray => s"${javaType(ObjectType(cls.getComponentType))}[]"
-    case ObjectType(cls) => cls.getName
-    case _ => "Object"
-  }
-
-  /**
-   * Returns the boxed type in Java.
-   */
-  def boxedType(jt: String): String = jt match {
-    case JAVA_BOOLEAN => "Boolean"
-    case JAVA_BYTE => "Byte"
-    case JAVA_SHORT => "Short"
-    case JAVA_INT => "Integer"
-    case JAVA_LONG => "Long"
-    case JAVA_FLOAT => "Float"
-    case JAVA_DOUBLE => "Double"
-    case other => other
-  }
-
-  def boxedType(dt: DataType): String = boxedType(javaType(dt))
-
-  /**
-   * Returns the representation of default value for a given Java Type.
-   */
-  def defaultValue(jt: String): String = jt match {
-    case JAVA_BOOLEAN => "false"
-    case JAVA_BYTE => "(byte)-1"
-    case JAVA_SHORT => "(short)-1"
-    case JAVA_INT => "-1"
-    case JAVA_LONG => "-1L"
-    case JAVA_FLOAT => "-1.0f"
-    case JAVA_DOUBLE => "-1.0"
-    case _ => "null"
-  }
-
-  def defaultValue(dt: DataType): String = defaultValue(javaType(dt))
-
-  /**
    * Generates code for equal expression in Java.
    */
   def genEqual(dataType: DataType, c1: String, c2: String): String = dataType match {
@@ -905,19 +838,6 @@ class CodegenContext {
       "\n" + execute
     }
   }
-
-  /**
-   * List of java data types that have special accessors and setters in [[InternalRow]].
-   */
-  val primitiveTypes =
-    Seq(JAVA_BOOLEAN, JAVA_BYTE, JAVA_SHORT, JAVA_INT, JAVA_LONG, JAVA_FLOAT, JAVA_DOUBLE)
-
-  /**
-   * Returns true if the Java type has a special accessor and setter in [[InternalRow]].
-   */
-  def isPrimitiveType(jt: String): Boolean = primitiveTypes.contains(jt)
-
-  def isPrimitiveType(dt: DataType): Boolean = isPrimitiveType(javaType(dt))
 
   /**
    * Splits the generated code of expressions into multiple functions, because function has
@@ -1266,6 +1186,102 @@ class CodegenContext {
       ""
     }
   }
+}
+
+object CodegenConstants {
+  val JAVA_BOOLEAN = "boolean"
+  val JAVA_BYTE = "byte"
+  val JAVA_SHORT = "short"
+  val JAVA_INT = "int"
+  val JAVA_LONG = "long"
+  val JAVA_FLOAT = "float"
+  val JAVA_DOUBLE = "double"
+}
+
+object CodegenUtils {
+  import CodegenConstants._
+
+  /**
+   * Returns the name used in accessor and setter for a Java primitive type.
+   */
+  def primitiveTypeName(jt: String): String = jt match {
+    case JAVA_INT => "Int"
+    case _ => boxedType(jt)
+  }
+
+  def primitiveTypeName(dt: DataType): String = primitiveTypeName(javaType(dt))
+
+  /**
+   * Returns the Java type for a DataType.
+   */
+  def javaType(dt: DataType): String = dt match {
+    case BooleanType => JAVA_BOOLEAN
+    case ByteType => JAVA_BYTE
+    case ShortType => JAVA_SHORT
+    case IntegerType | DateType => JAVA_INT
+    case LongType | TimestampType => JAVA_LONG
+    case FloatType => JAVA_FLOAT
+    case DoubleType => JAVA_DOUBLE
+    case _: DecimalType => "Decimal"
+    case BinaryType => "byte[]"
+    case StringType => "UTF8String"
+    case CalendarIntervalType => "CalendarInterval"
+    case _: StructType => "InternalRow"
+    case _: ArrayType => "ArrayData"
+    case _: MapType => "MapData"
+    case udt: UserDefinedType[_] => javaType(udt.sqlType)
+    case ObjectType(cls) if cls.isArray => s"${javaType(ObjectType(cls.getComponentType))}[]"
+    case ObjectType(cls) => cls.getName
+    case _ => "Object"
+  }
+
+  /**
+   * Returns the boxed type in Java.
+   */
+  def boxedType(jt: String): String = jt match {
+    case JAVA_BOOLEAN => "Boolean"
+    case JAVA_BYTE => "Byte"
+    case JAVA_SHORT => "Short"
+    case JAVA_INT => "Integer"
+    case JAVA_LONG => "Long"
+    case JAVA_FLOAT => "Float"
+    case JAVA_DOUBLE => "Double"
+    case other => other
+  }
+
+  def boxedType(dt: DataType): String = boxedType(javaType(dt))
+
+  /**
+   * Returns the representation of default value for a given Java Type.
+   * @param jt the string name of the Java type
+   * @param typedNull if true, for null literals, return a typed (with a cast) version
+   */
+  def defaultValue(jt: String, typedNull: Boolean): String = jt match {
+    case JAVA_BOOLEAN => "false"
+    case JAVA_BYTE => "(byte)-1"
+    case JAVA_SHORT => "(short)-1"
+    case JAVA_INT => "-1"
+    case JAVA_LONG => "-1L"
+    case JAVA_FLOAT => "-1.0f"
+    case JAVA_DOUBLE => "-1.0"
+    case _ => if (typedNull) s"(($jt)null)" else "null"
+  }
+
+  def defaultValue(dt: DataType, typedNull: Boolean = false): String =
+    defaultValue(javaType(dt), typedNull)
+
+  /**
+   * List of java data types that have special accessors and setters in [[InternalRow]].
+   */
+  val primitiveTypes =
+    Seq(JAVA_BOOLEAN, JAVA_BYTE, JAVA_SHORT, JAVA_INT, JAVA_LONG, JAVA_FLOAT, JAVA_DOUBLE)
+
+  /**
+   * Returns true if the Java type has a special accessor and setter in [[InternalRow]].
+   */
+  def isPrimitiveType(jt: String): Boolean = primitiveTypes.contains(jt)
+
+  def isPrimitiveType(dt: DataType): Boolean = isPrimitiveType(javaType(dt))
 
   /**
    * Returns the length of parameters for a Java method descriptor. `this` contributes one unit

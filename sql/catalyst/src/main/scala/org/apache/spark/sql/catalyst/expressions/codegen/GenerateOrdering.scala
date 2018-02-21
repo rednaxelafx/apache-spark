@@ -86,10 +86,11 @@ object GenerateOrdering extends CodeGenerator[Seq[SortOrder], Ordering[InternalR
       val primitiveA = ctx.freshName("primitiveA")
       val isNullB = ctx.freshName("isNullB")
       val primitiveB = ctx.freshName("primitiveB")
+      val javaType = CodegenUtils.javaType(order.child.dataType)
       s"""
           ${ctx.INPUT_ROW} = a;
           boolean $isNullA;
-          ${ctx.javaType(order.child.dataType)} $primitiveA;
+          $javaType $primitiveA;
           {
             ${eval.code}
             $isNullA = ${eval.isNull};
@@ -97,7 +98,7 @@ object GenerateOrdering extends CodeGenerator[Seq[SortOrder], Ordering[InternalR
           }
           ${ctx.INPUT_ROW} = b;
           boolean $isNullB;
-          ${ctx.javaType(order.child.dataType)} $primitiveB;
+          $javaType $primitiveB;
           {
             ${eval.code}
             $isNullB = ${eval.isNull};

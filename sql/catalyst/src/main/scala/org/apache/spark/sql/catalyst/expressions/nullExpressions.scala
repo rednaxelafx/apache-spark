@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenConstants, CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types._
 
@@ -416,8 +416,8 @@ case class AtLeastNNonNulls(n: Int, children: Seq[Expression]) extends Predicate
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = evals,
       funcName = "atLeastNNonNulls",
-      extraArguments = (ctx.JAVA_INT, nonnull) :: Nil,
-      returnType = ctx.JAVA_INT,
+      extraArguments = (CodegenConstants.JAVA_INT, nonnull) :: Nil,
+      returnType = CodegenConstants.JAVA_INT,
       makeSplitFunction = body =>
         s"""
            |do {
@@ -436,11 +436,11 @@ case class AtLeastNNonNulls(n: Int, children: Seq[Expression]) extends Predicate
 
     ev.copy(code =
       s"""
-         |${ctx.JAVA_INT} $nonnull = 0;
+         |${CodegenConstants.JAVA_INT} $nonnull = 0;
          |do {
          |  $codes
          |} while (false);
-         |${ctx.JAVA_BOOLEAN} ${ev.value} = $nonnull >= $n;
+         |${CodegenConstants.JAVA_BOOLEAN} ${ev.value} = $nonnull >= $n;
        """.stripMargin, isNull = "false")
   }
 }

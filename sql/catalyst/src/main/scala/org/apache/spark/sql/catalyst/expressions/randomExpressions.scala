@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenUtils, ExprCode}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 import org.apache.spark.util.random.XORShiftRandom
@@ -81,8 +81,9 @@ case class Rand(child: Expression) extends RDG {
     val rngTerm = ctx.addMutableState(className, "rng")
     ctx.addPartitionInitializationStatement(
       s"$rngTerm = new $className(${seed}L + partitionIndex);")
+    val javaType = CodegenUtils.javaType(dataType)
     ev.copy(code = s"""
-      final ${ctx.javaType(dataType)} ${ev.value} = $rngTerm.nextDouble();""", isNull = "false")
+      final $javaType ${ev.value} = $rngTerm.nextDouble();""", isNull = "false")
   }
 }
 
@@ -115,8 +116,9 @@ case class Randn(child: Expression) extends RDG {
     val rngTerm = ctx.addMutableState(className, "rng")
     ctx.addPartitionInitializationStatement(
       s"$rngTerm = new $className(${seed}L + partitionIndex);")
+    val javaType = CodegenUtils.javaType(dataType)
     ev.copy(code = s"""
-      final ${ctx.javaType(dataType)} ${ev.value} = $rngTerm.nextGaussian();""", isNull = "false")
+      final $javaType ${ev.value} = $rngTerm.nextGaussian();""", isNull = "false")
   }
 }
 

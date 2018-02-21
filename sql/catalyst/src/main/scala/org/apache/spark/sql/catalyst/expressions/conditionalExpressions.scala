@@ -69,7 +69,7 @@ case class If(predicate: Expression, trueValue: Expression, falseValue: Expressi
       s"""
          |${condEval.code}
          |boolean ${ev.isNull} = false;
-         |${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+         |${CodegenUtils.javaType(dataType)} ${ev.value} = ${CodegenUtils.defaultValue(dataType)};
          |if (!${condEval.isNull} && ${condEval.value}) {
          |  ${trueEval.code}
          |  ${ev.isNull} = ${trueEval.isNull};
@@ -191,7 +191,7 @@ case class CaseWhen(
     // It is initialized to `NOT_MATCHED`, and if it's set to `HAS_NULL` or `HAS_NONNULL`,
     // We won't go on anymore on the computation.
     val resultState = ctx.freshName("caseWhenResultState")
-    ev.value = ctx.addMutableState(ctx.javaType(dataType), ev.value)
+    ev.value = ctx.addMutableState(CodegenUtils.javaType(dataType), ev.value)
 
     // these blocks are meant to be inside a
     // do {
@@ -244,10 +244,10 @@ case class CaseWhen(
     val codes = ctx.splitExpressionsWithCurrentInputs(
       expressions = allConditions,
       funcName = "caseWhen",
-      returnType = ctx.JAVA_BYTE,
+      returnType = CodegenConstants.JAVA_BYTE,
       makeSplitFunction = func =>
         s"""
-           |${ctx.JAVA_BYTE} $resultState = $NOT_MATCHED;
+           |${CodegenConstants.JAVA_BYTE} $resultState = $NOT_MATCHED;
            |do {
            |  $func
            |} while (false);
@@ -264,7 +264,7 @@ case class CaseWhen(
 
     ev.copy(code =
       s"""
-         |${ctx.JAVA_BYTE} $resultState = $NOT_MATCHED;
+         |${CodegenConstants.JAVA_BYTE} $resultState = $NOT_MATCHED;
          |do {
          |  $codes
          |} while (false);

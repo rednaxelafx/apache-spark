@@ -31,7 +31,8 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.ScalaReflection.universe.TermName
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenConstants, CodegenContext, CodegenUtils, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenUtils._
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData}
 import org.apache.spark.sql.types._
 
@@ -62,13 +63,13 @@ trait InvokeLike extends Expression with NonSQLExpression {
   def prepareArguments(ctx: CodegenContext): (String, String, String) = {
 
     val resultIsNull = if (needNullCheck) {
-      val resultIsNull = ctx.addMutableState(ctx.JAVA_BOOLEAN, "resultIsNull")
+      val resultIsNull = ctx.addMutableState(CodegenConstants.JAVA_BOOLEAN, "resultIsNull")
       resultIsNull
     } else {
       "false"
     }
     val argValues = arguments.map { e =>
-      val argValue = ctx.addMutableState(ctx.javaType(e.dataType), "argValue")
+      val argValue = ctx.addMutableState(javaType(e.dataType), "argValue")
       argValue
     }
 
@@ -137,7 +138,7 @@ case class StaticInvoke(
     throw new UnsupportedOperationException("Only code-generated evaluation is supported.")
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
 
     val (argCode, argString, resultIsNull) = prepareArguments(ctx)
 
@@ -151,7 +152,7 @@ case class StaticInvoke(
     }
 
     val evaluate = if (returnNullable) {
-      if (ctx.defaultValue(dataType) == "null") {
+      if (defaultValue(dataType) == "null") {
         s"""
           ${ev.value} = $callFunc;
           ${ev.isNull} = ${ev.value} == null;
@@ -159,7 +160,7 @@ case class StaticInvoke(
       } else {
         val boxedResult = ctx.freshName("boxedResult")
         s"""
-          ${ctx.boxedType(dataType)} $boxedResult = $callFunc;
+          ${boxedType(dataType)} $boxedResult = $callFunc;
           ${ev.isNull} = $boxedResult == null;
           if (!${ev.isNull}) {
             ${ev.value} = $boxedResult;
@@ -173,7 +174,7 @@ case class StaticInvoke(
     val code = s"""
       $argCode
       $prepareIsNull
-      $javaType ${ev.value} = ${ctx.defaultValue(dataType)};
+      $javaType ${ev.value} = ${defaultValue(dataType)};
       if (!$resultIsNull) {
         $evaluate
       }
@@ -228,7 +229,7 @@ case class Invoke(
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
     val obj = targetObject.genCode(ctx)
 
     val (argCode, argString, resultIsNull) = prepareArguments(ctx)
@@ -255,11 +256,11 @@ case class Invoke(
       // If the function can return null, we do an extra check to make sure our null bit is still
       // set correctly.
       val assignResult = if (!returnNullable) {
-        s"${ev.value} = (${ctx.boxedType(javaType)}) $funcResult;"
+        s"${ev.value} = (${boxedType(javaType)}) $funcResult;"
       } else {
         s"""
           if ($funcResult != null) {
-            ${ev.value} = (${ctx.boxedType(javaType)}) $funcResult;
+            ${ev.value} = (${boxedType(javaType)}) $funcResult;
           } else {
             ${ev.isNull} = true;
           }
@@ -275,7 +276,7 @@ case class Invoke(
     val code = s"""
       ${obj.code}
       boolean ${ev.isNull} = true;
-      $javaType ${ev.value} = ${ctx.defaultValue(dataType)};
+      $javaType ${ev.value} = ${defaultValue(dataType)};
       if (!${obj.isNull}) {
         $argCode
         ${ev.isNull} = $resultIsNull;
@@ -341,7 +342,7 @@ case class NewInstance(
     throw new UnsupportedOperationException("Only code-generated evaluation is supported.")
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
 
     val (argCode, argString, resultIsNull) = prepareArguments(ctx)
 
@@ -358,7 +359,7 @@ case class NewInstance(
     val code = s"""
       $argCode
       ${outer.map(_.code).getOrElse("")}
-      final $javaType ${ev.value} = ${ev.isNull} ? ${ctx.defaultValue(javaType)} : $constructorCall;
+      final $javaType ${ev.value} = ${ev.isNull} ? ${defaultValue(javaType)} : $constructorCall;
     """
     ev.copy(code = code)
   }
@@ -385,7 +386,7 @@ case class UnwrapOption(
     throw new UnsupportedOperationException("Only code-generated evaluation is supported")
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
     val inputObject = child.genCode(ctx)
 
     val code = s"""
@@ -393,7 +394,7 @@ case class UnwrapOption(
 
       final boolean ${ev.isNull} = ${inputObject.isNull} || ${inputObject.value}.isEmpty();
       $javaType ${ev.value} = ${ev.isNull} ?
-        ${ctx.defaultValue(javaType)} : (${ctx.boxedType(javaType)}) ${inputObject.value}.get();
+        ${defaultValue(javaType)} : (${boxedType(javaType)}) ${inputObject.value}.get();
     """
     ev.copy(code = code)
   }
@@ -546,7 +547,7 @@ case class MapObjects private(
       ArrayType(lambdaFunction.dataType, containsNull = lambdaFunction.nullable))
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val elementJavaType = ctx.javaType(loopVarDataType)
+    val elementJavaType = javaType(loopVarDataType)
     ctx.addMutableState(elementJavaType, loopValue, forceInline = true, useFreshName = false)
     val genInputData = inputData.genCode(ctx)
     val genFunction = lambdaFunction.genCode(ctx)
@@ -554,7 +555,7 @@ case class MapObjects private(
     val convertedArray = ctx.freshName("convertedArray")
     val loopIndex = ctx.freshName("loopIndex")
 
-    val convertedType = ctx.boxedType(lambdaFunction.dataType)
+    val convertedType = boxedType(lambdaFunction.dataType)
 
     // Because of the way Java defines nested arrays, we have to handle the syntax specially.
     // Specifically, we have to insert the [$dataLength] in between the type and any extra nested
@@ -643,7 +644,8 @@ case class MapObjects private(
     }
 
     val loopNullCheck = if (loopIsNull != "false") {
-      ctx.addMutableState(ctx.JAVA_BOOLEAN, loopIsNull, forceInline = true, useFreshName = false)
+      ctx.addMutableState(
+        CodegenConstants.JAVA_BOOLEAN, loopIsNull, forceInline = true, useFreshName = false)
       inputDataType match {
         case _: ArrayType => s"$loopIsNull = ${genInputData.value}.isNullAt($loopIndex);"
         case _ => s"$loopIsNull = $loopValue == null;"
@@ -695,7 +697,7 @@ case class MapObjects private(
 
     val code = s"""
       ${genInputData.code}
-      ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+      ${javaType(dataType)} ${ev.value} = ${defaultValue(dataType)};
 
       if (!${genInputData.isNull}) {
         $determineCollectionType
@@ -806,10 +808,10 @@ case class CatalystToExternalMap private(
     }
 
     val mapType = inputDataType(inputData.dataType).asInstanceOf[MapType]
-    val keyElementJavaType = ctx.javaType(mapType.keyType)
+    val keyElementJavaType = javaType(mapType.keyType)
     ctx.addMutableState(keyElementJavaType, keyLoopValue, forceInline = true, useFreshName = false)
     val genKeyFunction = keyLambdaFunction.genCode(ctx)
-    val valueElementJavaType = ctx.javaType(mapType.valueType)
+    val valueElementJavaType = javaType(mapType.valueType)
     ctx.addMutableState(valueElementJavaType, valueLoopValue, forceInline = true,
       useFreshName = false)
     val genValueFunction = valueLambdaFunction.genCode(ctx)
@@ -844,7 +846,7 @@ case class CatalystToExternalMap private(
     val genValueFunctionValue = genFunctionValue(valueLambdaFunction, genValueFunction)
 
     val valueLoopNullCheck = if (valueLoopIsNull != "false") {
-      ctx.addMutableState(ctx.JAVA_BOOLEAN, valueLoopIsNull, forceInline = true,
+      ctx.addMutableState(CodegenConstants.JAVA_BOOLEAN, valueLoopIsNull, forceInline = true,
         useFreshName = false)
       s"$valueLoopIsNull = $valueArray.isNullAt($loopIndex);"
     } else {
@@ -873,7 +875,7 @@ case class CatalystToExternalMap private(
 
     val code = s"""
       ${genInputData.code}
-      ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+      ${javaType(dataType)} ${ev.value} = ${defaultValue(dataType)};
 
       if (!${genInputData.isNull}) {
         int $dataLength = $getLength;
@@ -993,8 +995,8 @@ case class ExternalMapToCatalyst private(
     val entry = ctx.freshName("entry")
     val entries = ctx.freshName("entries")
 
-    val keyElementJavaType = ctx.javaType(keyType)
-    val valueElementJavaType = ctx.javaType(valueType)
+    val keyElementJavaType = javaType(keyType)
+    val valueElementJavaType = javaType(valueType)
     ctx.addMutableState(keyElementJavaType, key, forceInline = true, useFreshName = false)
     ctx.addMutableState(valueElementJavaType, value, forceInline = true, useFreshName = false)
 
@@ -1009,8 +1011,8 @@ case class ExternalMapToCatalyst private(
         val defineKeyValue =
           s"""
             final $javaMapEntryCls $entry = ($javaMapEntryCls) $entries.next();
-            $key = (${ctx.boxedType(keyType)}) $entry.getKey();
-            $value = (${ctx.boxedType(valueType)}) $entry.getValue();
+            $key = (${boxedType(keyType)}) $entry.getKey();
+            $value = (${boxedType(valueType)}) $entry.getValue();
           """
 
         defineEntries -> defineKeyValue
@@ -1024,22 +1026,24 @@ case class ExternalMapToCatalyst private(
         val defineKeyValue =
           s"""
             final $scalaMapEntryCls $entry = ($scalaMapEntryCls) $entries.next();
-            $key = (${ctx.boxedType(keyType)}) $entry._1();
-            $value = (${ctx.boxedType(valueType)}) $entry._2();
+            $key = (${boxedType(keyType)}) $entry._1();
+            $value = (${boxedType(valueType)}) $entry._2();
           """
 
         defineEntries -> defineKeyValue
     }
 
     val keyNullCheck = if (keyIsNull != "false") {
-      ctx.addMutableState(ctx.JAVA_BOOLEAN, keyIsNull, forceInline = true, useFreshName = false)
+      ctx.addMutableState(
+        CodegenConstants.JAVA_BOOLEAN, keyIsNull, forceInline = true, useFreshName = false)
       s"$keyIsNull = $key == null;"
     } else {
       ""
     }
 
     val valueNullCheck = if (valueIsNull != "false") {
-      ctx.addMutableState(ctx.JAVA_BOOLEAN, valueIsNull, forceInline = true, useFreshName = false)
+      ctx.addMutableState(
+        CodegenConstants.JAVA_BOOLEAN, valueIsNull, forceInline = true, useFreshName = false)
       s"$valueIsNull = $value == null;"
     } else {
       ""
@@ -1047,12 +1051,12 @@ case class ExternalMapToCatalyst private(
 
     val arrayCls = classOf[GenericArrayData].getName
     val mapCls = classOf[ArrayBasedMapData].getName
-    val convertedKeyType = ctx.boxedType(keyConverter.dataType)
-    val convertedValueType = ctx.boxedType(valueConverter.dataType)
+    val convertedKeyType = boxedType(keyConverter.dataType)
+    val convertedValueType = boxedType(valueConverter.dataType)
     val code =
       s"""
         ${inputMap.code}
-        ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+        ${javaType(dataType)} ${ev.value} = ${defaultValue(dataType)};
         if (!${inputMap.isNull}) {
           final int $length = ${inputMap.value}.size();
           final Object[] $convertedKeys = new Object[$length];
@@ -1174,12 +1178,12 @@ case class EncodeUsingSerializer(child: Expression, kryo: Boolean)
 
     // Code to serialize.
     val input = child.genCode(ctx)
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
     val serialize = s"$serializer.serialize(${input.value}, null).array()"
 
     val code = s"""
       ${input.code}
-      final $javaType ${ev.value} = ${input.isNull} ? ${ctx.defaultValue(javaType)} : $serialize;
+      final $javaType ${ev.value} = ${input.isNull} ? ${defaultValue(javaType)} : $serialize;
      """
     ev.copy(code = code, isNull = input.isNull)
   }
@@ -1223,13 +1227,13 @@ case class DecodeUsingSerializer[T](child: Expression, tag: ClassTag[T], kryo: B
 
     // Code to deserialize.
     val input = child.genCode(ctx)
-    val javaType = ctx.javaType(dataType)
+    val javaType = CodegenUtils.javaType(dataType)
     val deserialize =
       s"($javaType) $serializer.deserialize(java.nio.ByteBuffer.wrap(${input.value}), null)"
 
     val code = s"""
       ${input.code}
-      final $javaType ${ev.value} = ${input.isNull} ? ${ctx.defaultValue(javaType)} : $deserialize;
+      final $javaType ${ev.value} = ${input.isNull} ? ${defaultValue(javaType)} : $deserialize;
      """
     ev.copy(code = code, isNull = input.isNull)
   }
@@ -1254,7 +1258,7 @@ case class InitializeJavaBean(beanInstance: Expression, setters: Map[String, Exp
     val instanceGen = beanInstance.genCode(ctx)
 
     val javaBeanInstance = ctx.freshName("javaBean")
-    val beanInstanceJavaType = ctx.javaType(beanInstance.dataType)
+    val beanInstanceJavaType = javaType(beanInstance.dataType)
 
     val initialize = setters.map {
       case (setterMethod, fieldValue) =>
@@ -1405,15 +1409,15 @@ case class ValidateExternalType(child: Expression, expected: DataType)
       case _: ArrayType =>
         s"$obj instanceof ${classOf[Seq[_]].getName} || $obj.getClass().isArray()"
       case _ =>
-        s"$obj instanceof ${ctx.boxedType(dataType)}"
+        s"$obj instanceof ${boxedType(dataType)}"
     }
 
     val code = s"""
       ${input.code}
-      ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
+      ${javaType(dataType)} ${ev.value} = ${defaultValue(dataType)};
       if (!${input.isNull}) {
         if ($typeCheck) {
-          ${ev.value} = (${ctx.boxedType(dataType)}) $obj;
+          ${ev.value} = (${boxedType(dataType)}) $obj;
         } else {
           throw new RuntimeException($obj.getClass().getName() + $errMsgField);
         }
